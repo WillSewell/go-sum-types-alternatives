@@ -15,28 +15,34 @@ type pubsubBus struct {
 	eventChan chan interface{} // Note the interface{} type for events
 }
 
-func (p *pubsubBus) Run() {
-	go func() {
-		for event := range p.eventChan {
-			// This is not type safe because we might remove a handler, but forget to
-			// remove the function which sends the now unhandled event on the channel.
-			switch e := event.(type) {
-			case subscribeEvent:
-				p.subs = append(p.subs, e.messageChan)
-			case publishEvent:
-				for _, sub := range p.subs {
-					sub <- e.message
-				}
-			default:
-				panic(fmt.Sprint("Unknown event type"))
-			}
+func (p *pubsubBus) run() {
+	for event := range p.eventChan {
+		// This is not type safe because we might remove a handler, but forget to
+		// remove the function which sends the now unhandled event on the channel.
+		switch e := event.(type) {
+		case subscribeEvent:
+			p.handleSubscribe(e)
+		case publishEvent:
+			p.handlePublish(e)
+		default:
+			panic(fmt.Sprint("Unknown event type"))
 		}
-	}()
+	}
+}
+
+func (p *pubsubBus) handleSubscribe(subscribeEvent subscribeEvent) {
+	p.subs = append(p.subs, subscribeEvent.messageChan)
+}
+
+func (p *pubsubBus) handlePublish(publishEvent publishEvent) {
+	for _, sub := range p.subs {
+		sub <- publishEvent.message
+	}
 }
 
 func main() {
 	bus := pubsubBus{make([]chan<- string, 0), make(chan interface{})}
-	bus.Run()
+	go bus.run()
 	messageChan := make(chan string, 1)
 	bus.eventChan<-subscribeEvent{messageChan}
 	bus.eventChan<-publishEvent{"message"}

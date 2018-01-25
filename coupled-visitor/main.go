@@ -12,7 +12,7 @@ type subscribeEvent struct {
 }
 
 func (sE subscribeEvent) visit(p *pubsubBus) {
-	p.subs = append(p.subs, sE.messageChan)
+	p.handleSubscribe(sE)
 }
 
 type publishEvent struct {
@@ -20,9 +20,7 @@ type publishEvent struct {
 }
 
 func (pE publishEvent) visit(p *pubsubBus) {
-	for _, sub := range p.subs {
-		sub <- pE.message
-	}
+	p.handlePublish(pE)
 }
 
 type pubsubBus struct {
@@ -30,18 +28,26 @@ type pubsubBus struct {
 	eventChan chan event
 }
 
-func (p *pubsubBus) Run() {
-	go func() {
-		for event := range p.eventChan {
-			// Type switch is not required, so it's type-safe
-			event.visit(p)
-		}
-	}()
+func (p *pubsubBus) run() {
+	for event := range p.eventChan {
+		// Type switch is not required, so it's type-safe
+		event.visit(p)
+	}
+}
+
+func (p *pubsubBus) handleSubscribe(subscribeEvent subscribeEvent) {
+	p.subs = append(p.subs, subscribeEvent.messageChan)
+}
+
+func (p *pubsubBus) handlePublish(publishEvent publishEvent) {
+	for _, sub := range p.subs {
+		sub <- publishEvent.message
+	}
 }
 
 func main() {
 	bus := pubsubBus{make([]chan<- string, 0), make(chan event)}
-	bus.Run()
+	bus.run()
 	messageChan := make(chan string, 1)
 	bus.eventChan<-subscribeEvent{messageChan}
 	bus.eventChan<-publishEvent{"message"}

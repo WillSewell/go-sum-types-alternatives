@@ -35,33 +35,31 @@ type pubsubBus struct {
 	eventChan chan event
 }
 
-func (p *pubsubBus) Run() {
-	go func() {
-		for event := range p.eventChan {
-			p.handleEvent(event)
-		}
-	}()
+func (p *pubsubBus) run() {
+	for event := range p.eventChan {
+		// Handler implementations are passed in here.
+		// Alternative handler implementations could be defined by
+		// creating an alternative version of this method.
+		event.visit(eventVisitor{
+			visitSubscribe: p.handleSubscribe,
+			visitPublish: p.handlePublish,
+		})
+	}
 }
 
-// Handler implementations are passed in here.
-// Alternative handler implementations could be defined by creating an
-// alternative version of this method.
-func (p *pubsubBus) handleEvent(e event) {
-	e.visit(eventVisitor{
-		visitSubscribe: func(sE subscribeEvent) {
-			p.subs = append(p.subs, sE.messageChan)
-		},
-		visitPublish: func(pE publishEvent) {
-			for _, sub := range p.subs {
-				sub <- pE.message
-			}
-		},
-	})
+func (p *pubsubBus) handleSubscribe(subscribeEvent subscribeEvent) {
+	p.subs = append(p.subs, subscribeEvent.messageChan)
+}
+
+func (p *pubsubBus) handlePublish(publishEvent publishEvent) {
+	for _, sub := range p.subs {
+		sub <- publishEvent.message
+	}
 }
 
 func main() {
 	bus := pubsubBus{make([]chan<- string, 0), make(chan event)}
-	bus.Run()
+	go bus.run()
 	messageChan := make(chan string, 1)
 	bus.eventChan<-subscribeEvent{messageChan}
 	bus.eventChan<-publishEvent{"message"}

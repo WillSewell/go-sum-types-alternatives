@@ -1,14 +1,7 @@
 package main
 
-import (
-	"fmt"
-)
+import "fmt"
 
-type (
-	channel    string
-	message    interface{}
-	subscriber chan<- message
-)
 
 type event interface {
 	visit(v eventVisitor)
@@ -22,8 +15,7 @@ type eventVisitor struct {
 }
 
 type subscribeEvent struct {
-	c channel
-	s subscriber
+	messageChan chan<- string
 }
 
 func (s subscribeEvent) visit(v eventVisitor) {
@@ -31,43 +23,16 @@ func (s subscribeEvent) visit(v eventVisitor) {
 }
 
 type publishEvent struct {
-	c       channel
-	message interface{}
+	message string
 }
 
 func (p publishEvent) visit(v eventVisitor) {
 	v.visitPublish(p)
 }
 
-// Handler implementations are passed in here.
-// Alternative handler implementations could be defined by creating an
-// alternative version of this method.
-func (p *pubsubBus) handleEvent(e event) {
-	e.visit(eventVisitor{
-		visitSubscribe: func(sE subscribeEvent) {
-			p.subs[sE.c] = append(p.subs[sE.c], sE.s)
-		},
-		visitPublish: func(pE publishEvent) {
-			for _, sub := range p.subs[pE.c] {
-				sub <- pE.message
-			}
-		},
-	})
-}
-
 type pubsubBus struct {
-	subs      map[channel][]subscriber
+	subs      []chan<- string
 	eventChan chan event
-}
-
-// Public interface
-
-func (p *pubsubBus) Subscribe(c channel, s subscriber) {
-	p.eventChan <- subscribeEvent{c, s}
-}
-
-func (p *pubsubBus) Publish(c channel, message interface{}) {
-	p.eventChan <- publishEvent{c, message}
 }
 
 func (p *pubsubBus) Run() {
@@ -78,12 +43,28 @@ func (p *pubsubBus) Run() {
 	}()
 }
 
+// Handler implementations are passed in here.
+// Alternative handler implementations could be defined by creating an
+// alternative version of this method.
+func (p *pubsubBus) handleEvent(e event) {
+	e.visit(eventVisitor{
+		visitSubscribe: func(sE subscribeEvent) {
+			p.subs = append(p.subs, sE.messageChan)
+		},
+		visitPublish: func(pE publishEvent) {
+			for _, sub := range p.subs {
+				sub <- pE.message
+			}
+		},
+	})
+}
+
 func main() {
-	bus := pubsubBus{make(map[channel][]subscriber), make(chan event)}
+	bus := pubsubBus{make([]chan<- string, 0), make(chan event)}
 	bus.Run()
-	subChan := make(chan message)
-	bus.Subscribe("testChan", subChan)
-	bus.Publish("testChan", "message")
-	msg := <-subChan
+	messageChan := make(chan string, 1)
+	bus.eventChan<-subscribeEvent{messageChan}
+	bus.eventChan<-publishEvent{"message"}
+	msg := <-messageChan
 	fmt.Println("Received:", msg)
 }

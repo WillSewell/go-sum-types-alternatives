@@ -1,14 +1,6 @@
 package main
 
-import (
-	"fmt"
-)
-
-type (
-	channel    string
-	message    interface{}
-	subscriber chan<- message
-)
+import "fmt"
 
 type event interface {
 	// Instances now implement the handler in this method
@@ -16,38 +8,26 @@ type event interface {
 }
 
 type subscribeEvent struct {
-	c channel
-	s subscriber
+	messageChan chan<- string
 }
 
 func (sE subscribeEvent) visit(p *pubsubBus) {
-	p.subs[sE.c] = append(p.subs[sE.c], sE.s)
+	p.subs = append(p.subs, sE.messageChan)
 }
 
 type publishEvent struct {
-	c       channel
-	message interface{}
+	message string
 }
 
 func (pE publishEvent) visit(p *pubsubBus) {
-	for _, sub := range p.subs[pE.c] {
+	for _, sub := range p.subs {
 		sub <- pE.message
 	}
 }
 
 type pubsubBus struct {
-	subs      map[channel][]subscriber
+	subs      []chan<- string
 	eventChan chan event
-}
-
-// Public interface
-
-func (p *pubsubBus) Subscribe(c channel, s subscriber) {
-	p.eventChan <- subscribeEvent{c, s}
-}
-
-func (p *pubsubBus) Publish(c channel, message interface{}) {
-	p.eventChan <- publishEvent{c, message}
 }
 
 func (p *pubsubBus) Run() {
@@ -60,11 +40,11 @@ func (p *pubsubBus) Run() {
 }
 
 func main() {
-	bus := pubsubBus{make(map[channel][]subscriber), make(chan event)}
+	bus := pubsubBus{make([]chan<- string, 0), make(chan event)}
 	bus.Run()
-	subChan := make(chan message)
-	bus.Subscribe("testChan", subChan)
-	bus.Publish("testChan", "message")
-	msg := <-subChan
+	messageChan := make(chan string, 1)
+	bus.eventChan<-subscribeEvent{messageChan}
+	bus.eventChan<-publishEvent{"message"}
+	msg := <-messageChan
 	fmt.Println("Received:", msg)
 }

@@ -1,47 +1,26 @@
 package main
 
-import (
-	"fmt"
-	"reflect"
-)
-
-type (
-	channel    string
-	message    interface{}
-	subscriber chan<- message
-)
+import "fmt"
 
 type event interface {
 	isEvent()
 }
 
 type subscribeEvent struct {
-	c channel
-	s subscriber
+	messageChan chan<- string
 }
 
 func (subscribeEvent) isEvent() {}
 
 type publishEvent struct {
-	c       channel
-	message interface{}
-}
-
-type pubsubBus struct {
-	subs      map[channel][]subscriber
-	eventChan chan event // Now only types which implement `event` can be sent
+	message string
 }
 
 func (publishEvent) isEvent() {}
 
-// Public interface
-
-func (p *pubsubBus) Subscribe(c channel, s subscriber) {
-	p.eventChan <- subscribeEvent{c, s}
-}
-
-func (p *pubsubBus) Publish(c channel, message interface{}) {
-	p.eventChan <- publishEvent{c, message}
+type pubsubBus struct {
+	subs      []chan<- string
+	eventChan chan event // Now only types which implement `event` can be sent
 }
 
 func (p *pubsubBus) Run() {
@@ -51,32 +30,24 @@ func (p *pubsubBus) Run() {
 			// remove the function which sends the now unhandled event on the channel.
 			switch e := event.(type) {
 			case subscribeEvent:
-				p.handleSubscribe(e)
+				p.subs = append(p.subs, e.messageChan)
 			case publishEvent:
-				p.handlePublish(e)
+				for _, sub := range p.subs {
+					sub <- e.message
+				}
 			default:
-				panic(fmt.Sprint("Unknown event type: ", reflect.TypeOf(event)))
+				panic(fmt.Sprint("Unknown event type"))
 			}
 		}
 	}()
 }
 
-func (p *pubsubBus) handleSubscribe(subscribeEvent subscribeEvent) {
-	p.subs[subscribeEvent.c] = append(p.subs[subscribeEvent.c], subscribeEvent.s)
-}
-
-func (p *pubsubBus) handlePublish(publishEvent publishEvent) {
-	for _, sub := range p.subs[publishEvent.c] {
-		sub <- publishEvent.message
-	}
-}
-
 func main() {
-	bus := pubsubBus{make(map[channel][]subscriber), make(chan event)}
+	bus := pubsubBus{make([]chan<- string, 0), make(chan event)}
 	bus.Run()
-	subChan := make(chan message)
-	bus.Subscribe("testChan", subChan)
-	bus.Publish("testChan", "message")
-	msg := <-subChan
+	messageChan := make(chan string, 1)
+	bus.eventChan<-subscribeEvent{messageChan}
+	bus.eventChan<-publishEvent{"message"}
+	msg := <-messageChan
 	fmt.Println("Received:", msg)
 }
